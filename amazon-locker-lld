@@ -1,0 +1,254 @@
+Amazon locker is a self service package pickup and drop system. A delivery driver deposits
+a package in the locker of its suitable size and generates a code.
+
+Customer uses this code to get the package this is being sent to them using email or text notification.
+
+**
+Requirements => Entities => Class Design => Implementation => Extensibility**
+
+Primary capabilities:
+- Are there different size compartments ?
+- How does the customer get their code ?
+
+error handling:
+- Can one customer have multiple packages in the system ?
+- How long do the code lost ? 7 days.
+- What if all compartments are full when driver tries to deposit ?
+
+Requirements:
+
+1. Carrier deposits a package by specifying size.
+- System assigns an available compartments of its size
+- Opens compartment and keep the itsm and returns access code or returns error if not size available.
+
+2. Upon successful deposit if an access token is generated and sent it to the customer or user.
+- One access token per package
+
+3. User retrieves package by entering the access token
+- System validates code and opens the compartment if its correct.
+- Throws specific error if code is invalid.
+
+4. Access token expires after 7 days.
+- Expired codes are rejected if user uses it.
+- Package remains in the compartment until it staff removes it.
+
+5. Staff can open all compartments and manually scans all the items.
+- System opens all compartments with expired tokens.
+- Staff physically removes all items with expired token.
+
+Out of Scope:
+- How the package gets to the locker.
+- How the access token reaches the customer.
+
+
+Entities:
+
+1. Locker
+2. Compartments
+3. AccessToken
+
+Class Diagram:
+=================
+
+class Locker:
+    -compartments: Compartments[]
+    -accessTokenMapping: Map<string AccessToken>
+
+    +Locker() - 
+    +depositPackage() -> String | error
+    +pickUp()  -> void | error
+    +openExpiredCompartments() -> void
+
+class AccessToken:
+    -code: String
+    -expiration: imestamp
+    -compartment: Compartment
+
+    +AccessToken(code, expiration, compartment)
+    +isExpired: boolean
+    +getCompartments() -> Compartment
+    +getCode() -> String
+
+class Compartment:
+    -size: Size
+    -occupied: boolean
+
+    +Compartment(size) 
+    +getSize(compartment) -> Size
+    +isOccupied() -> boolean
+    +markOccupied() -> void
+
+enum Size:
+    SMALL
+    MEDIUM
+    LARGE
+
+
+import java.time.LocalDateTime;
+import java.util.*;
+
+
+public enum Size {
+    SMALL,
+    MEDIUM,
+    LARGE
+}
+
+public class Locker {
+    private final List<Compartment> compartments;
+    private final Map<String, AccessTocken> accessTokenMapping;
+
+    private static final long TOKEN_VALIDITY_HOURS = 24;
+
+    public Locker(List<Compartment> compartments) {
+        this.compartments = compartments;
+        this.accessTokenMapping = new HashMap<>();
+    }
+
+    public synchronized String depositPackage(Size size) {
+        if(Compartment compartment: compartments) {
+            if(!compartment.isOccupied() && canFit(compartment.getSize(), size)) {
+                compartment.markOccupied();
+                String tokenCode = UUID.randomUUID().toString();
+
+                LocalDateTime expiration = LocalDateTime.now().plusHours(TOKEN_VALIDITY_HOURS);
+
+                AccessToken token = new AccessToken(tokenCode, expiration, compartment);
+                accessTokenMapping.put(tokenCode, token);
+                return tokenCode;
+            }
+        }
+
+        throw new IllegalStateException("No available compartment for size:" + size);
+    }
+
+
+    private boolean canFit(Size compartmentSize, Size packageSize) {
+        return compartmentSize.ordinal() >= packageSize.ordinal();
+    }
+
+    public syncronized void pickUp(String tokenCode) {
+        AccessToken token = accessTokenMapping.get(tokenCode);
+
+        if(token == null) {
+            throw new IllegalArgumentException("Invalid access token");
+        }
+
+        if(token.isExpired()) {
+            throw new IllegalStateException("Access toke has expired");
+        }
+
+        Compartment compartment = token.getCompartment();
+        compartment.open();
+        compartment.markFree();
+        accessTokenMapping.remove(tokenCode);
+        System.out.println("Package picked up successfully");
+        
+    }
+
+    punlic openExpiredCompartments() {
+        Iterator<Map.Entry<String, AccessToken>> iterator = accessTokenMapping.entrySet().iterator();
+
+        while(iterator.hasNext()) {
+            Map.Entry<String, AccessToken> entry = iterator.next();
+            AccessToken token = entry.getValue();
+
+            if(token.isExpired()) {
+                Compartment compartment = token.getCompartment();
+                compartment.open();
+                compartment.markFree();
+                iterator.remove();
+                System.out.println("Expired component removed from compartment");
+            }
+        }
+    }
+}
+
+
+public class Compartment {
+    private final Size size;
+    private boolean occupied;
+
+    public Compartment(Size size) {
+        this.size = size;
+        this.occupied = false;
+    }
+
+    public Size getSize() {
+        return size;
+    }
+
+    public boolean isOccupied() {
+        return occupied;
+    }
+
+    public void markOccupied() {
+        this.occupied = true;
+    }
+
+    public void markFree() {
+        this.occupied = false;
+    }
+
+    public void open() {
+        System.out.println("Compartment opened: " + size);
+    }
+}
+
+
+import java.time.LocalDateTime;
+
+public class AccessToken {
+    private final String code;
+    private final LocalDateTime expiration;
+    private final Compartment compartment;
+
+    public AccessToken(String code, LocalDateTime expiration,
+                       Compartment compartment) {
+        this.code = code;
+        this.expiration = expiration;
+        this.compartment = compartment;
+    }
+
+    public boolean isExpired() {
+        return LocalDateTime.now().isAfter(expiration);
+    }
+
+    public Compartment getCompartment() {
+        return compartment;
+    }
+
+    public String getCode() {
+        return code;
+    }
+
+    public LocalDateTime getExpiration() {
+        return expiration;
+    }
+}
+
+
+import java.util.*;
+
+public class Main {
+    public static void main(String[] args) {
+        List<Compartment> compartments = Arrays.asList(
+                new Compartment(Size.SMALL),
+                new Compartment(Size.SMALL),
+                new Compartment(Size.MEDIUM),
+                new Compartment(Size.LARGE)
+        );
+
+        Locker locker = new Locker(compartments);
+
+        // Deposit a medium-sized package
+        String token = locker.depositPackage(Size.MEDIUM);
+        System.out.println("Access Token: " + token);
+
+        // Pick up the package
+        locker.pickup(token);
+
+        // Handle expired packages
+        locker.openExpiredCompartments();
+    }
+}
